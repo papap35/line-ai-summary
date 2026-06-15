@@ -5,6 +5,7 @@
   "type": "module",
   "description": "LINE group chat daily AI summarizer (Express + Claude)",
   "main": "src/app.js",
+  "packageManager": "yarn@1.22.22",
   "scripts": {
     "start": "node src/app.js",
     "summarize": "node src/run-summary.js"

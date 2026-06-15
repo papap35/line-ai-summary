@@ -62,8 +62,8 @@ docker compose up -d
 ### 方法 B：直接用 Node.js
 
 ```bash
-npm install
-npm start
+yarn install
+yarn start
 ```
 
 ## 步驟四：設定 Webhook URL
@@ -98,7 +98,7 @@ ngrok 會給你一個類似 `https://xxxx.ngrok-free.app` 的網址。
 ## 手動觸發摘要（測試用）
 
 ```bash
-npm run summarize
+yarn summarize
 ```
 
 ---
