@@ -48,16 +48,13 @@ src/run-summary.js ──┘                └─> src/summarizer.js
 
 ## 2. 測試的原則
 
-> 目前專案**尚未**導入測試框架（對應 `SPEC.md` P0 #1）。在該項目完成前：
-> - 新增/修改純邏輯（如 `dayRange`、`runDailySummary` 的流程控制）時，至少手動驗證（`node -e` 或暫時的 CLI 腳本）並在 PR 描述中寫明驗證方式。
-> - 不要求每個 PR 都補測試，但**不可讓現有的手動驗證方式（`/health`、`yarn summarize`、curl webhook）失效**。
+專案已導入 `vitest`（`SPEC.md` P0 #1）。規則如下：
 
-導入 vitest 之後（完成 `SPEC.md` P0 #1 後），規則如下：
-
-- **必須有測試的程式碼**：`src/database.js` 中可獨立測試的純函式（`todayString`、`dayRange`）、`src/summaryJob.js` 的 `runDailySummary` 流程控制（mock `db` 與 `summarize`/LINE push）。
+- **必須有測試的程式碼**：`src/database.js` 中可獨立測試的純函式（`todayString`、`dayRange`，見 `src/database.test.js`）、`src/summaryJob.js` 的 `runDailySummary` 流程控制（mock `./database.js`、`./summarizer.js`、`@line/bot-sdk`，見 `src/summaryJob.test.js`）。新增同類型邏輯時要補對應測試。
+- **Mock 慣例**：對 `@line/bot-sdk`、`./database.js`、`./summarizer.js` 等有外部依賴（Firestore/LINE/Claude API）的模組一律用 `vi.mock` 隔離，測試不應觸發真實網路呼叫。需要在 mock factory 內參照外部變數時，用 `vi.hoisted()` 避免 TDZ 錯誤；mock 建構子（如 `MessagingApiClient`）需用具名 `function` 而非箭頭函式，才能被 `new` 呼叫。
 - **防迴歸測試規則**：修 bug 時，先寫一個會在修復前失敗、修復後通過的測試，再修正邏輯。
 - **測試命名規範**：測試檔案放在被測檔案旁，命名為 `<name>.test.js`（例如 `src/database.test.js`）。測試描述使用「做什麼 + 預期結果」的句式，例如 `dayRange 在跨日邊界回傳正確的 UTC 範圍`。
-- **執行指令**：`yarn test`（待 P0 #1 加入 `package.json` scripts 後生效）。
+- **執行指令**：`yarn test`（執行 `vitest run`，單次執行不進入 watch mode）。
 
 ---
 

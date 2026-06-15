@@ -18,7 +18,7 @@
 
 ### P0 — 穩定性與安全（必做，理由：目前無自動化測試與監控，回歸風險與故障難察覺）
 
-#### 1. 加入自動化測試框架與核心單元測試 `[ ]`
+#### 1. 加入自動化測試框架與核心單元測試 `[x]`
 
 **背景**：目前專案完全沒有測試，`database.js`、`summaryJob.js`、`summarizer.js` 的邏輯（例如 `dayRange`、`purgeOldMessages`、`runDailySummary` 的跳過/錯誤隔離邏輯）只能靠手動測試，改動時容易產生回歸。
 
@@ -27,6 +27,8 @@
 - 針對 `src/database.js` 的 `dayRange()`、`todayString()` 寫純函式單元測試（不需連接真實 Firestore，可用 `@firebase/rules-unit-testing` 或 Firestore emulator，或將純計算邏輯抽出）
 - 針對 `src/summaryJob.js` 的 `runDailySummary()` 寫測試：mock `db` 與 `summarize`/`sendLineMessage`，驗證「已有摘要則跳過」「單一群組失敗不影響其他群組」「`TARGET_GROUP_ID` 設定時只處理該群組」
 - 涉及檔案：`package.json`、`src/database.js`（可能需重構以分離純邏輯）、`src/summaryJob.js`、新增 `src/*.test.js` 或 `test/` 目錄
+
+> 實作備註：`dayRange()` 改為 `export`；`src/database.test.js` 涵蓋 `todayString`/`dayRange` 的時區邊界；`src/summaryJob.test.js` 透過 `vi.mock` 模擬 `@line/bot-sdk`、`./database.js`、`./summarizer.js`，涵蓋上述四種情境。執行 `yarn test`。
 
 ---
 

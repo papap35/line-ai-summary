@@ -16,7 +16,7 @@ export function todayString() {
 }
 
 // [start, end) bounds for the given local date, as Firestore Timestamps.
-function dayRange(dateStr) {
+export function dayRange(dateStr) {
   const start = DateTime.fromISO(dateStr, { zone: TIMEZONE }).startOf('day').toUTC();
   const end = start.plus({ days: 1 });
   return {
