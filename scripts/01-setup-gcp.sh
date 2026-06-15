@@ -26,7 +26,8 @@ gcloud services enable \
   firestore.googleapis.com \
   cloudscheduler.googleapis.com \
   cloudbuild.googleapis.com \
-  artifactregistry.googleapis.com
+  artifactregistry.googleapis.com \
+  secretmanager.googleapis.com
 
 echo "==> Creating Firestore database (Native mode), ignore error if it already exists"
 gcloud firestore databases create --location="$REGION" || true

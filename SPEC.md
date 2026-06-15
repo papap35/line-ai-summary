@@ -10,8 +10,8 @@
 | 摘要結果儲存（`summaries` collection） | ✅ |
 | LINE Push 推送每日摘要 | ✅ |
 | 舊訊息自動清理（`purgeOldMessages`） | ✅ |
-| Cloud Run 部署（Dockerfile + `scripts/02-deploy.sh`） | ✅ |
-| Cloud Scheduler 每日排程（`scripts/03-setup-scheduler.sh`） | ✅ |
+| Cloud Run 部署（Dockerfile + `scripts/03-deploy.sh`） | ✅ |
+| Cloud Scheduler 每日排程（`scripts/04-setup-scheduler.sh`） | ✅ |
 | `CRON_SECRET` 保護 `/api/run-summary` | ✅ |
 
 ## 待開發功能規格
@@ -45,7 +45,7 @@
 
 ---
 
-#### 3. Secret Manager 整合 `[ ]`
+#### 3. Secret Manager 整合 `[x]`
 
 **背景**：目前 `LINE_CHANNEL_ACCESS_TOKEN`、`LINE_CHANNEL_SECRET`、`ANTHROPIC_API_KEY`、`CRON_SECRET` 都以明文環境變數的形式存在 `scripts/02-deploy.sh` 產生的設定與 Cloud Run 服務設定中，且本機 `.env` 內也是明文。
 
@@ -54,6 +54,8 @@
 - 新增 `scripts/00-setup-secrets.sh`（或併入 `01-setup-gcp.sh`）：讀取 `.env` 中的敏感值，建立/更新對應的 Secret Manager 密鑰
 - `SETUP.md` 補充說明 Secret Manager 設定步驟與所需 IAM 權限（`roles/secretmanager.secretAccessor`）
 - 涉及檔案：`scripts/01-setup-gcp.sh`、`scripts/02-deploy.sh`、`SETUP.md`
+
+> 實作備註：新增 `scripts/02-setup-secrets.sh`（讀取 `.env`，為 `LINE_CHANNEL_ACCESS_TOKEN`/`LINE_CHANNEL_SECRET`/`ANTHROPIC_API_KEY`/`CRON_SECRET` 建立/更新 `${SERVICE_NAME}-*` secret，並對 Cloud Run 預設運算服務帳戶授予 `roles/secretmanager.secretAccessor`）。為維持腳本執行順序清晰，原 `02-deploy.sh`→`03-deploy.sh`、`03-setup-scheduler.sh`→`04-setup-scheduler.sh`（編號重排為 01→04）。`03-deploy.sh` 改用 `--set-secrets` 掛載四個敏感值，其餘設定仍走 `--env-vars-file`。`01-setup-gcp.sh` 新增啟用 `secretmanager.googleapis.com`。`SETUP.md` 新增「步驟四：設定 Secret Manager」與密鑰輪替 FAQ。
 
 ---
 
@@ -122,7 +124,7 @@
 
 ## 技術債與基礎強化
 
-- **`runDailySummary()` 同步處理多群組可能逾時**：`/api/run-summary` 目前以 `for...of` 依序處理每個群組（每個群組都呼叫一次 Claude API），若群組數量多，總執行時間可能超過 Cloud Run 預設的 request timeout（300 秒）。短期可在 `scripts/02-deploy.sh` 的 `gcloud run deploy` 加上 `--timeout`，長期應評估改為非同步任務佇列（例如 Cloud Tasks）。
+- **`runDailySummary()` 同步處理多群組可能逾時**：`/api/run-summary` 目前以 `for...of` 依序處理每個群組（每個群組都呼叫一次 Claude API），若群組數量多，總執行時間可能超過 Cloud Run 預設的 request timeout（300 秒）。短期可在 `scripts/03-deploy.sh` 的 `gcloud run deploy` 加上 `--timeout`，長期應評估改為非同步任務佇列（例如 Cloud Tasks）。
 - **`purgeOldMessages` 缺乏測試**：刪除邏輯（`deleteInBatches` + 日期邊界計算）目前無測試覆蓋，若邊界計算錯誤可能誤刪當日資料。應隨功能 1（自動化測試）一併補上。
 - **Firestore 認證在本機沙箱環境的限制**：本機/CI 若無有效的 `GOOGLE_APPLICATION_CREDENTIALS` 或 ADC，`@google-cloud/firestore` 會在初始化時拋出未被路由 try/catch 捕捉的 unhandled rejection，導致整個程序崩潰而非回應錯誤。長期可考慮將 Firestore client 初始化改為 lazy/可注入，方便測試時 mock（與功能 1 相關）。
 

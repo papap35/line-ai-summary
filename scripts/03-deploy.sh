@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Deploy the app to Cloud Run, passing app env vars from .env.
-# Requires: gcloud CLI authenticated, project set up via 01-setup-gcp.sh.
+# Deploy the app to Cloud Run: non-sensitive config from .env as plain env
+# vars, sensitive credentials mounted from Secret Manager (see
+# 02-setup-secrets.sh).
+# Requires: gcloud CLI authenticated, project set up via 01-setup-gcp.sh
+# and secrets created via 02-setup-secrets.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -16,17 +19,20 @@ ENV_VARS_FILE="$(mktemp)"
 trap 'rm -f "$ENV_VARS_FILE"' EXIT
 
 cat > "$ENV_VARS_FILE" <<EOF
-LINE_CHANNEL_ACCESS_TOKEN: "${LINE_CHANNEL_ACCESS_TOKEN:?Set LINE_CHANNEL_ACCESS_TOKEN in .env}"
-LINE_CHANNEL_SECRET: "${LINE_CHANNEL_SECRET:?Set LINE_CHANNEL_SECRET in .env}"
-ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in .env}"
 TARGET_GROUP_ID: "${TARGET_GROUP_ID:-}"
 MESSAGE_RETENTION_DAYS: "${MESSAGE_RETENTION_DAYS:-7}"
 TIMEZONE: "${TIMEZONE:-Asia/Taipei}"
 GOOGLE_CLOUD_PROJECT: "${PROJECT_ID}"
-CRON_SECRET: "${CRON_SECRET:?Set CRON_SECRET in .env}"
 ADMIN_USER_ID: "${ADMIN_USER_ID:-}"
 ADMIN_GROUP_ID: "${ADMIN_GROUP_ID:-}"
 EOF
+
+# LINE/Anthropic credentials and CRON_SECRET come from Secret Manager
+# (created by ./scripts/02-setup-secrets.sh) rather than plain env vars.
+SECRETS="LINE_CHANNEL_ACCESS_TOKEN=${SERVICE_NAME}-line-channel-access-token:latest"
+SECRETS="${SECRETS},LINE_CHANNEL_SECRET=${SERVICE_NAME}-line-channel-secret:latest"
+SECRETS="${SECRETS},ANTHROPIC_API_KEY=${SERVICE_NAME}-anthropic-api-key:latest"
+SECRETS="${SECRETS},CRON_SECRET=${SERVICE_NAME}-cron-secret:latest"
 
 echo "==> Deploying ${SERVICE_NAME} to Cloud Run (${REGION})"
 gcloud run deploy "$SERVICE_NAME" \
@@ -34,7 +40,8 @@ gcloud run deploy "$SERVICE_NAME" \
   --source . \
   --region "$REGION" \
   --allow-unauthenticated \
-  --env-vars-file="$ENV_VARS_FILE"
+  --env-vars-file="$ENV_VARS_FILE" \
+  --set-secrets="$SECRETS"
 
 SERVICE_URL=$(gcloud run services describe "$SERVICE_NAME" \
   --project "$PROJECT_ID" --region "$REGION" --format='value(status.url)')

@@ -15,6 +15,7 @@ Cloud Scheduler ──(每天定時 POST /api/run-summary)──┘
 - **Cloud Run**：執行 Express 伺服器，接收 LINE webhook、處理每日摘要請求
 - **Firestore**：取代 SQLite，儲存訊息與摘要（Native mode）
 - **Cloud Scheduler**：取代 in-process cron，每天定時呼叫 `/api/run-summary`
+- **Secret Manager**：存放 LINE / Anthropic 金鑰與 `CRON_SECRET`，Cloud Run 部署時以環境變數形式掛載，避免明文存在服務設定中
 
 ## 快速部署（適合已熟悉 gcloud 的人）
 
@@ -23,8 +24,9 @@ Cloud Scheduler ──(每天定時 POST /api/run-summary)──┘
 ```bash
 cp .env.example .env   # 填入 LINE / Anthropic 金鑰、GOOGLE_CLOUD_PROJECT、CRON_SECRET 等
 ./scripts/01-setup-gcp.sh        # 啟用 API、建立 Firestore + index、建立本機開發用 service account
-./scripts/02-deploy.sh           # 部署到 Cloud Run，輸出服務網址
-./scripts/03-setup-scheduler.sh  # 建立/更新 Cloud Scheduler 每日摘要 job
+./scripts/02-setup-secrets.sh    # 將金鑰寫入 Secret Manager，並授權 Cloud Run 讀取
+./scripts/03-deploy.sh           # 部署到 Cloud Run，輸出服務網址
+./scripts/04-setup-scheduler.sh  # 建立/更新 Cloud Scheduler 每日摘要 job
 ```
 
 接著到 LINE Developers Console 設定 Webhook URL（見步驟五）。下面是完整的逐步說明，第一次操作或想了解每個指令的用途建議閱讀。
@@ -128,15 +130,43 @@ gcloud iam service-accounts keys create service-account.json \
 yarn start
 ```
 
-## 步驟四：部署到 Cloud Run
+## 步驟四：設定 Secret Manager
+
+LINE / Anthropic 金鑰與 `CRON_SECRET` 不會以明文存在 Cloud Run 環境變數中，而是存放在 Secret Manager，部署時掛載為環境變數。
+
+```bash
+gcloud services enable secretmanager.googleapis.com
+
+# 將 .env 中的敏感值寫入對應的 secret（以 LINE_CHANNEL_ACCESS_TOKEN 為例）
+printf '%s' "你的LINE Channel Access Token" | \
+  gcloud secrets create line-ai-summary-line-channel-access-token \
+  --data-file=- --replication-policy=automatic
+
+# 對 LINE_CHANNEL_SECRET、ANTHROPIC_API_KEY、CRON_SECRET 重複上述步驟，
+# secret 名稱依序為：
+#   line-ai-summary-line-channel-secret
+#   line-ai-summary-anthropic-api-key
+#   line-ai-summary-cron-secret
+
+# 授權 Cloud Run 預設運算服務帳戶讀取每一個 secret
+PROJECT_NUMBER=$(gcloud projects describe YOUR_PROJECT_ID --format='value(projectNumber)')
+gcloud secrets add-iam-policy-binding line-ai-summary-line-channel-access-token \
+  --member="serviceAccount:${PROJECT_NUMBER}-compute@developer.gserviceaccount.com" \
+  --role="roles/secretmanager.secretAccessor"
+# 其餘三個 secret 重複上述授權指令
+```
+
+> 想省事可直接執行 `./scripts/02-setup-secrets.sh`，它會讀取 `.env` 並自動完成上面所有步驟（建立/更新 4 個 secret + 授權）。
+
+## 步驟五：部署到 Cloud Run
 
 ```bash
 gcloud run deploy line-ai-summary \
   --source . \
   --region asia-east1 \
   --allow-unauthenticated \
-  --set-env-vars="GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID,TIMEZONE=Asia/Taipei,MESSAGE_RETENTION_DAYS=7,TARGET_GROUP_ID=,CRON_SECRET=用一個隨機字串" \
-  --set-env-vars="LINE_CHANNEL_ACCESS_TOKEN=xxx,LINE_CHANNEL_SECRET=xxx,ANTHROPIC_API_KEY=sk-ant-xxx"
+  --set-env-vars="GOOGLE_CLOUD_PROJECT=YOUR_PROJECT_ID,TIMEZONE=Asia/Taipei,MESSAGE_RETENTION_DAYS=7,TARGET_GROUP_ID=,ADMIN_USER_ID=,ADMIN_GROUP_ID=" \
+  --set-secrets="LINE_CHANNEL_ACCESS_TOKEN=line-ai-summary-line-channel-access-token:latest,LINE_CHANNEL_SECRET=line-ai-summary-line-channel-secret:latest,ANTHROPIC_API_KEY=line-ai-summary-anthropic-api-key:latest,CRON_SECRET=line-ai-summary-cron-secret:latest"
 ```
 
 > `--allow-unauthenticated` 是因為 LINE webhook 需要能匿名呼叫。`/api/run-summary` 路徑則靠 `CRON_SECRET` 做應用層驗證。
@@ -151,14 +181,14 @@ gcloud run deploy line-ai-summary \
 
 部署成功後會得到一個網址，例如 `https://line-ai-summary-xxxxx.asia-east1.run.app`。
 
-## 步驟五：設定 LINE Webhook URL
+## 步驟六：設定 LINE Webhook URL
 
 1. 回到 LINE Developers Console → **Messaging API** 頁面
 2. **Webhook URL** 填入：`https://你的Cloud Run網址/webhook`
 3. 點選 **Verify** 確認連線正常（應回傳 200 OK）
 4. 開啟 **Use webhook**
 
-## 步驟六：將 Bot 加入群組並取得 Group ID
+## 步驟七：將 Bot 加入群組並取得 Group ID
 
 1. 在 LINE Developers Console → **Messaging API** → 掃描 QR code 加機器人為好友
 2. 在 LINE 中將機器人邀請加入你的群組
@@ -178,7 +208,7 @@ gcloud run deploy line-ai-summary \
    `groupId` 中 `C` 開頭那串就是 `GROUP_ID`
 5. （可選）將 `TARGET_GROUP_ID` 更新到 Cloud Run 環境變數，重新部署
 
-## 步驟七：設定 Cloud Scheduler 每日摘要
+## 步驟八：設定 Cloud Scheduler 每日摘要
 
 ```bash
 gcloud scheduler jobs create http daily-summary \
@@ -207,6 +237,9 @@ curl -X POST https://你的Cloud Run網址/api/run-summary \
 
 ## 常見問題
 
+**Q: 如何更新已部署服務的金鑰（LINE token、Anthropic key、CRON_SECRET）？**
+A: 修改 `.env` 中對應的值，重新執行 `./scripts/02-setup-secrets.sh`（會新增一個 secret version 並設為 latest），Cloud Run 服務設定的是 `:latest`，但既有的 revision 不會自動套用新版本——需要重新部署（`./scripts/03-deploy.sh`）或手動 `gcloud run services update` 觸發新 revision。
+
 **Q: 為什麼機器人無法取得歷史訊息？**
 A: LINE API 限制，Bot 只能接收加入群組「之後」的訊息，無法讀取歷史記錄。
 
@@ -226,7 +259,7 @@ A: 預設 7 天（`MESSAGE_RETENTION_DAYS`），每次執行 `/api/run-summary` 
 A: 預設 `min-instances=0`，閒置一段時間後會 scale to 0，下次請求會有約 1~3 秒冷啟動，LINE 的 webhook timeout 通常足夠。如果在意可加 `--min-instances=1`，但會產生持續費用（超出免費額度）。
 
 **Q: 如何在某個群組摘要失敗時收到通知？**
-A: 設定 `.env` 中的 `ADMIN_USER_ID`（個人 LINE User ID）和/或 `ADMIN_GROUP_ID`（管理用群組的 Group ID），重新部署（`./scripts/02-deploy.sh`）。之後每次 `/api/run-summary` 執行時，若有任何群組處理失敗，會額外用 LINE Push 推送一則包含失敗群組 ID 與錯誤訊息的通知到這些對象。取得 User ID / Group ID 的方式與步驟六取得 `GROUP_ID` 相同——從 Cloud Run 結構化 log 的 `userId`/`groupId` 欄位讀取。
+A: 設定 `.env` 中的 `ADMIN_USER_ID`（個人 LINE User ID）和/或 `ADMIN_GROUP_ID`（管理用群組的 Group ID），重新部署（`./scripts/03-deploy.sh`）。之後每次 `/api/run-summary` 執行時，若有任何群組處理失敗，會額外用 LINE Push 推送一則包含失敗群組 ID 與錯誤訊息的通知到這些對象。取得 User ID / Group ID 的方式與步驟六取得 `GROUP_ID` 相同——從 Cloud Run 結構化 log 的 `userId`/`groupId` 欄位讀取。
 
 **Q: 程式的 log 是什麼格式？**
 A: 所有 log 都是單行 JSON（含 `severity`、`message` 與其他情境欄位如 `groupId`、`dateStr`、`step`），方便在 Cloud Logging 中依欄位篩選，例如查詢 `jsonPayload.step="process_group" AND severity=ERROR` 找出失敗的群組。

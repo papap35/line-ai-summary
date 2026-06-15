@@ -152,7 +152,8 @@ src/run-summary.js ──┘                └─> src/summarizer.js
 | 資料庫 | Google Cloud Firestore (Native mode)，`@google-cloud/firestore` v8 |
 | 時間處理 | `luxon`，時區由 `TIMEZONE` 環境變數控制（預設 `Asia/Taipei`） |
 | 本機啟動 | `yarn start`（伺服器）／`yarn summarize`（手動跑一次每日摘要） |
-| 部署 | Docker → Cloud Run（`scripts/02-deploy.sh`） |
-| 排程 | Cloud Scheduler → `POST /api/run-summary`（`scripts/03-setup-scheduler.sh`，需 `X-Cron-Secret` header） |
+| 部署 | Docker → Cloud Run（`scripts/03-deploy.sh`） |
+| 密鑰管理 | Secret Manager（`scripts/02-setup-secrets.sh`），LINE/Anthropic 金鑰與 `CRON_SECRET` 以 `--set-secrets` 掛載 |
+| 排程 | Cloud Scheduler → `POST /api/run-summary`（`scripts/04-setup-scheduler.sh`，需 `X-Cron-Secret` header） |
 | 初始化腳本 | `scripts/01-setup-gcp.sh`（啟用 API、建立 Firestore + index + dev service account） |
 | 設定文件 | `SETUP.md`（完整部署步驟）、`.env.example`（環境變數範本） |
