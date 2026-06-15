@@ -16,6 +16,19 @@ Cloud Scheduler ──(每天定時 POST /api/run-summary)──┘
 - **Firestore**：取代 SQLite，儲存訊息與摘要（Native mode）
 - **Cloud Scheduler**：取代 in-process cron，每天定時呼叫 `/api/run-summary`
 
+## 快速部署（適合已熟悉 gcloud 的人）
+
+`scripts/` 內已將下方步驟整理成腳本，在本機（已執行 `gcloud auth login`）依序執行：
+
+```bash
+cp .env.example .env   # 填入 LINE / Anthropic 金鑰、GOOGLE_CLOUD_PROJECT、CRON_SECRET 等
+./scripts/01-setup-gcp.sh        # 啟用 API、建立 Firestore + index、建立本機開發用 service account
+./scripts/02-deploy.sh           # 部署到 Cloud Run，輸出服務網址
+./scripts/03-setup-scheduler.sh  # 建立/更新 Cloud Scheduler 每日摘要 job
+```
+
+接著到 LINE Developers Console 設定 Webhook URL（見步驟五）。下面是完整的逐步說明，第一次操作或想了解每個指令的用途建議閱讀。
+
 ## 前置需求
 
 - Node.js 20+（本機開發用）
