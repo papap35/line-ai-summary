@@ -1,94 +1,103 @@
-import Database from 'better-sqlite3';
+import { Firestore, Timestamp } from '@google-cloud/firestore';
 import { DateTime } from 'luxon';
 
-const DB_PATH = process.env.DB_PATH || 'messages.db';
 const TIMEZONE = process.env.TIMEZONE || 'Asia/Taipei';
 
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
+const firestore = new Firestore({
+  projectId: process.env.GOOGLE_CLOUD_PROJECT,
+});
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    group_id TEXT NOT NULL,
-    user_id TEXT,
-    display_name TEXT,
-    message TEXT NOT NULL,
-    timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS summaries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    group_id TEXT NOT NULL,
-    summary TEXT NOT NULL,
-    date TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_messages_group_time ON messages (group_id, timestamp);
-  CREATE INDEX IF NOT EXISTS idx_summaries_group_date ON summaries (group_id, date);
-`);
-
-const SQLITE_TS_FORMAT = 'yyyy-MM-dd HH:mm:ss';
-
-// SQLite's CURRENT_TIMESTAMP is UTC in "yyyy-MM-dd HH:mm:ss" form, so range
-// bounds must be formatted the same way for string comparison to stay correct.
-function dayRangeUtc(dateStr) {
-  const start = DateTime.fromISO(dateStr, { zone: TIMEZONE }).startOf('day').toUTC();
-  const end = start.plus({ days: 1 });
-  return {
-    start: start.toFormat(SQLITE_TS_FORMAT),
-    end: end.toFormat(SQLITE_TS_FORMAT),
-  };
-}
+const messagesCol = firestore.collection('messages');
+const summariesCol = firestore.collection('summaries');
+const activityCol = firestore.collection('groupActivity');
 
 export function todayString() {
   return DateTime.now().setZone(TIMEZONE).toISODate();
 }
 
-export function saveMessage({ groupId, userId, displayName, message }) {
-  db.prepare(
-    `INSERT INTO messages (group_id, user_id, display_name, message) VALUES (?, ?, ?, ?)`
-  ).run(groupId, userId ?? null, displayName ?? null, message);
+// [start, end) bounds for the given local date, as Firestore Timestamps.
+function dayRange(dateStr) {
+  const start = DateTime.fromISO(dateStr, { zone: TIMEZONE }).startOf('day').toUTC();
+  const end = start.plus({ days: 1 });
+  return {
+    start: Timestamp.fromDate(start.toJSDate()),
+    end: Timestamp.fromDate(end.toJSDate()),
+  };
 }
 
-export function getTodayMessages(groupId, dateStr = todayString()) {
-  const { start, end } = dayRangeUtc(dateStr);
-  return db
-    .prepare(
-      `SELECT user_id, display_name, message, timestamp FROM messages
-       WHERE group_id = ? AND timestamp >= ? AND timestamp < ?
-       ORDER BY timestamp ASC`
-    )
-    .all(groupId, start, end);
+export async function saveMessage({ groupId, userId, displayName, message }) {
+  const now = Timestamp.now();
+  const dateStr = todayString();
+
+  await messagesCol.add({
+    groupId,
+    userId: userId ?? null,
+    displayName: displayName ?? null,
+    message,
+    timestamp: now,
+  });
+
+  // One doc per group per day lets getActiveGroups avoid a DISTINCT-style scan.
+  await activityCol.doc(`${dateStr}__${groupId}`).set(
+    { groupId, date: dateStr, updatedAt: now },
+    { merge: true }
+  );
 }
 
-export function getActiveGroups(dateStr = todayString()) {
-  const { start, end } = dayRangeUtc(dateStr);
-  const rows = db
-    .prepare(
-      `SELECT DISTINCT group_id FROM messages WHERE timestamp >= ? AND timestamp < ?`
-    )
-    .all(start, end);
-  return rows.map((r) => r.group_id);
+export async function getTodayMessages(groupId, dateStr = todayString()) {
+  const { start, end } = dayRange(dateStr);
+  const snapshot = await messagesCol
+    .where('groupId', '==', groupId)
+    .where('timestamp', '>=', start)
+    .where('timestamp', '<', end)
+    .orderBy('timestamp', 'asc')
+    .get();
+
+  return snapshot.docs.map((doc) => {
+    const data = doc.data();
+    return {
+      user_id: data.userId,
+      display_name: data.displayName,
+      message: data.message,
+      timestamp: data.timestamp.toDate().toISOString(),
+    };
+  });
 }
 
-export function saveSummary(groupId, summary, dateStr = todayString()) {
-  db.prepare(
-    `INSERT INTO summaries (group_id, summary, date) VALUES (?, ?, ?)`
-  ).run(groupId, summary, dateStr);
+export async function getActiveGroups(dateStr = todayString()) {
+  const snapshot = await activityCol.where('date', '==', dateStr).get();
+  return snapshot.docs.map((doc) => doc.data().groupId);
 }
 
-export function getSummary(groupId, dateStr = todayString()) {
-  const row = db
-    .prepare(
-      `SELECT summary FROM summaries WHERE group_id = ? AND date = ? ORDER BY created_at DESC LIMIT 1`
-    )
-    .get(groupId, dateStr);
-  return row ? row.summary : null;
+export async function saveSummary(groupId, summary, dateStr = todayString()) {
+  await summariesCol.doc(`${groupId}__${dateStr}`).set({
+    groupId,
+    date: dateStr,
+    summary,
+    createdAt: Timestamp.now(),
+  });
 }
 
-export function purgeOldMessages(retentionDays = 7) {
-  const cutoff = DateTime.now().minus({ days: retentionDays }).toUTC().toFormat(SQLITE_TS_FORMAT);
-  db.prepare(`DELETE FROM messages WHERE timestamp < ?`).run(cutoff);
+export async function getSummary(groupId, dateStr = todayString()) {
+  const doc = await summariesCol.doc(`${groupId}__${dateStr}`).get();
+  return doc.exists ? doc.data().summary : null;
+}
+
+async function deleteInBatches(query, batchSize = 400) {
+  let snapshot = await query.limit(batchSize).get();
+  while (!snapshot.empty) {
+    const batch = firestore.batch();
+    snapshot.docs.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+    snapshot = await query.limit(batchSize).get();
+  }
+}
+
+export async function purgeOldMessages(retentionDays = 7) {
+  const cutoff = DateTime.now().minus({ days: retentionDays });
+  const cutoffTimestamp = Timestamp.fromDate(cutoff.toUTC().toJSDate());
+  const cutoffDateStr = cutoff.setZone(TIMEZONE).toISODate();
+
+  await deleteInBatches(messagesCol.where('timestamp', '<', cutoffTimestamp));
+  await deleteInBatches(activityCol.where('date', '<', cutoffDateStr));
 }
