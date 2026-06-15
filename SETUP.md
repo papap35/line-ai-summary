@@ -3,7 +3,7 @@
 ## 系統架構
 
 ```
-LINE 群組 → Webhook → Flask 伺服器 → SQLite 儲存訊息
+LINE 群組 → Webhook → Express 伺服器 → SQLite 儲存訊息
                                           ↓ (每天定時)
                                     Claude Haiku 分析
                                           ↓
@@ -12,7 +12,7 @@ LINE 群組 → Webhook → Flask 伺服器 → SQLite 儲存訊息
 
 ## 前置需求
 
-- Python 3.12+（或 Docker）
+- Node.js 20+（或 Docker）
 - 一個公開可存取的 HTTPS 網址（LINE Webhook 必須是 HTTPS）
 - LINE Developers 帳號
 - Anthropic API 金鑰
@@ -47,6 +47,8 @@ SUMMARY_HOUR=20       # 每晚幾點發送摘要（24小時制）
 SUMMARY_MINUTE=0
 TARGET_GROUP_ID=      # 留空 = 所有群組；填入特定 Group ID 則只摘要該群
 MESSAGE_RETENTION_DAYS=7
+TIMEZONE=Asia/Taipei
+PORT=5000
 ```
 
 ## 步驟三：啟動服務
@@ -57,13 +59,11 @@ MESSAGE_RETENTION_DAYS=7
 docker compose up -d
 ```
 
-### 方法 B：直接用 Python
+### 方法 B：直接用 Node.js
 
 ```bash
-python -m venv venv
-source venv/bin/activate    # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-python app.py
+npm install
+npm start
 ```
 
 ## 步驟四：設定 Webhook URL
@@ -98,8 +98,7 @@ ngrok 會給你一個類似 `https://xxxx.ngrok-free.app` 的網址。
 ## 手動觸發摘要（測試用）
 
 ```bash
-# 在 Python shell 中執行
-python -c "from scheduler import run_daily_summary; run_daily_summary()"
+npm run summarize
 ```
 
 ---
@@ -110,7 +109,7 @@ python -c "from scheduler import run_daily_summary; run_daily_summary()"
 A: LINE API 限制，Bot 只能接收加入群組「之後」的訊息，無法讀取歷史記錄。
 
 **Q: 摘要發送時間可以改嗎？**
-A: 修改 `.env` 中的 `SUMMARY_HOUR` 和 `SUMMARY_MINUTE`，重啟服務即可。
+A: 修改 `.env` 中的 `SUMMARY_HOUR`、`SUMMARY_MINUTE` 和 `TIMEZONE`，重啟服務即可。
 
 **Q: 訊息資料保存多久？**
 A: 預設 7 天（`MESSAGE_RETENTION_DAYS`），每次發送摘要後自動清理舊資料。
