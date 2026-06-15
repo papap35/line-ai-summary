@@ -3,6 +3,7 @@ import express from 'express';
 import { messagingApi, middleware as lineMiddleware, SignatureValidationFailed } from '@line/bot-sdk';
 import * as db from './database.js';
 import { runDailySummary } from './summaryJob.js';
+import { logger } from './logger.js';
 
 const lineConfig = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -24,7 +25,7 @@ app.post('/webhook', lineMiddleware(lineConfig), async (req, res) => {
     await Promise.all((req.body.events || []).map(handleEvent));
     res.status(200).end();
   } catch (err) {
-    console.error('Error handling webhook event', err);
+    logger.error('Error handling webhook event', { step: 'webhook', err });
     res.status(500).end();
   }
 });
@@ -42,7 +43,7 @@ app.post('/api/run-summary', async (req, res) => {
     const result = await runDailySummary();
     res.json({ status: 'ok', ...result });
   } catch (err) {
-    console.error('Daily summary failed', err);
+    logger.error('Daily summary failed', { step: 'run_summary', err });
     res.status(500).json({ status: 'error' });
   }
 });
@@ -63,7 +64,7 @@ async function handleEvent(event) {
   }
 
   await db.saveMessage({ groupId, userId, displayName, message: text });
-  console.log(`Saved message from ${userId} in group ${groupId}`);
+  logger.info('Saved message', { step: 'save_message', groupId, userId });
 }
 
 app.use((err, req, res, next) => {
@@ -71,7 +72,7 @@ app.use((err, req, res, next) => {
     res.status(400).send('Invalid signature');
     return;
   }
-  console.error('Unhandled error', err);
+  logger.error('Unhandled error', { step: 'express_error_handler', err });
   res.status(500).end();
 });
 

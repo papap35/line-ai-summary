@@ -32,7 +32,7 @@
 
 ---
 
-#### 2. 結構化 log 與錯誤通知 `[ ]`
+#### 2. 結構化 log 與錯誤通知 `[x]`
 
 **背景**：目前 `console.log`/`console.error` 是唯一的可觀測性手段。`/api/run-summary` 若整體失敗（如步驟 3 提到的 Firestore 認證問題）只會回 500，使用者要等到沒收到摘要才會發現，且要去翻 Cloud Run log 才能定位問題。
 
@@ -40,6 +40,8 @@
 - `src/app.js`、`src/summaryJob.js` 的 log 改為結構化 JSON（含 `groupId`、`dateStr`、`step` 欄位），方便在 Cloud Logging 中過濾
 - `runDailySummary()` 執行完成後（無論成功或部分失敗），若有任一群組處理失敗，透過 LINE Push 通知一個「管理者」群組/個人（可用新增環境變數 `ADMIN_USER_ID` 或 `ADMIN_GROUP_ID`）
 - 涉及檔案：`src/app.js`、`src/summaryJob.js`、`.env.example`、`SETUP.md`
+
+> 實作備註：新增 `src/logger.js`（`logger.info/warn/error`，輸出含 `severity` 欄位的單行 JSON，`err` 物件自動序列化為 `name/message/stack`）。`app.js`、`summaryJob.js` 全面改用此 logger。`runDailySummary()` 新增 `notifyAdmins()`，於迴圈結束後若有 `failures` 則對 `ADMIN_USER_ID`/`ADMIN_GROUP_ID`（任一或兩者皆可設定）各推送一則失敗摘要；回傳值新增 `failed` 欄位。新增 `src/logger.test.js`，並更新 `src/summaryJob.test.js` 涵蓋管理者通知情境。
 
 ---
 

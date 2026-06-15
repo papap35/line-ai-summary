@@ -169,13 +169,13 @@ gcloud run deploy line-ai-summary \
    gcloud run services logs read line-ai-summary --region asia-east1 --limit 20
    ```
 
-   會看到類似：
+   會看到類似（結構化 JSON log）：
 
-   ```
-   Saved message from Uxxxxxxxx in group Cxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+   ```json
+   {"severity":"INFO","message":"Saved message","step":"save_message","groupId":"Cxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","userId":"Uxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
    ```
 
-   `C` 開頭那串就是 `GROUP_ID`
+   `groupId` 中 `C` 開頭那串就是 `GROUP_ID`
 5. （可選）將 `TARGET_GROUP_ID` 更新到 Cloud Run 環境變數，重新部署
 
 ## 步驟七：設定 Cloud Scheduler 每日摘要
@@ -224,3 +224,9 @@ A: 預設 7 天（`MESSAGE_RETENTION_DAYS`），每次執行 `/api/run-summary` 
 
 **Q: Cloud Run 會不會冷啟動導致 webhook 逾時？**
 A: 預設 `min-instances=0`，閒置一段時間後會 scale to 0，下次請求會有約 1~3 秒冷啟動，LINE 的 webhook timeout 通常足夠。如果在意可加 `--min-instances=1`，但會產生持續費用（超出免費額度）。
+
+**Q: 如何在某個群組摘要失敗時收到通知？**
+A: 設定 `.env` 中的 `ADMIN_USER_ID`（個人 LINE User ID）和/或 `ADMIN_GROUP_ID`（管理用群組的 Group ID），重新部署（`./scripts/02-deploy.sh`）。之後每次 `/api/run-summary` 執行時，若有任何群組處理失敗，會額外用 LINE Push 推送一則包含失敗群組 ID 與錯誤訊息的通知到這些對象。取得 User ID / Group ID 的方式與步驟六取得 `GROUP_ID` 相同——從 Cloud Run 結構化 log 的 `userId`/`groupId` 欄位讀取。
+
+**Q: 程式的 log 是什麼格式？**
+A: 所有 log 都是單行 JSON（含 `severity`、`message` 與其他情境欄位如 `groupId`、`dateStr`、`step`），方便在 Cloud Logging 中依欄位篩選，例如查詢 `jsonPayload.step="process_group" AND severity=ERROR` 找出失敗的群組。
