@@ -10,13 +10,14 @@ const firestore = new Firestore({
 const messagesCol = firestore.collection('messages');
 const summariesCol = firestore.collection('summaries');
 const activityCol = firestore.collection('groupActivity');
+const groupSettingsCol = firestore.collection('groupSettings');
 
 export function todayString() {
   return DateTime.now().setZone(TIMEZONE).toISODate();
 }
 
 // [start, end) bounds for the given local date, as Firestore Timestamps.
-function dayRange(dateStr) {
+export function dayRange(dateStr) {
   const start = DateTime.fromISO(dateStr, { zone: TIMEZONE }).startOf('day').toUTC();
   const end = start.plus({ days: 1 });
   return {
@@ -25,7 +26,7 @@ function dayRange(dateStr) {
   };
 }
 
-export async function saveMessage({ groupId, userId, displayName, message }) {
+export async function saveMessage({ groupId, userId, displayName, message, messageType = 'text' }) {
   const now = Timestamp.now();
   const dateStr = todayString();
 
@@ -34,6 +35,7 @@ export async function saveMessage({ groupId, userId, displayName, message }) {
     userId: userId ?? null,
     displayName: displayName ?? null,
     message,
+    messageType,
     timestamp: now,
   });
 
@@ -81,6 +83,18 @@ export async function saveSummary(groupId, summary, dateStr = todayString()) {
 export async function getSummary(groupId, dateStr = todayString()) {
   const doc = await summariesCol.doc(`${groupId}__${dateStr}`).get();
   return doc.exists ? doc.data().summary : null;
+}
+
+export async function getGroupSettings(groupId) {
+  const doc = await groupSettingsCol.doc(groupId).get();
+  return doc.exists ? doc.data() : null;
+}
+
+export async function saveGroupSettings(groupId, settings) {
+  await groupSettingsCol.doc(groupId).set(
+    { groupId, ...settings, updatedAt: Timestamp.now() },
+    { merge: true }
+  );
 }
 
 async function deleteInBatches(query, batchSize = 400) {

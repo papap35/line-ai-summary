@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Create (or update) the Cloud Scheduler job that triggers the daily summary.
-# Requires: service already deployed via 02-deploy.sh.
+# Requires: service already deployed via 03-deploy.sh.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

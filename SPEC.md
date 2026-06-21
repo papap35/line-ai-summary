@@ -10,15 +10,15 @@
 | 摘要結果儲存（`summaries` collection） | ✅ |
 | LINE Push 推送每日摘要 | ✅ |
 | 舊訊息自動清理（`purgeOldMessages`） | ✅ |
-| Cloud Run 部署（Dockerfile + `scripts/02-deploy.sh`） | ✅ |
-| Cloud Scheduler 每日排程（`scripts/03-setup-scheduler.sh`） | ✅ |
+| Cloud Run 部署（Dockerfile + `scripts/03-deploy.sh`） | ✅ |
+| Cloud Scheduler 每日排程（`scripts/04-setup-scheduler.sh`） | ✅ |
 | `CRON_SECRET` 保護 `/api/run-summary` | ✅ |
 
 ## 待開發功能規格
 
 ### P0 — 穩定性與安全（必做，理由：目前無自動化測試與監控，回歸風險與故障難察覺）
 
-#### 1. 加入自動化測試框架與核心單元測試 `[ ]`
+#### 1. 加入自動化測試框架與核心單元測試 `[x]`
 
 **背景**：目前專案完全沒有測試，`database.js`、`summaryJob.js`、`summarizer.js` 的邏輯（例如 `dayRange`、`purgeOldMessages`、`runDailySummary` 的跳過/錯誤隔離邏輯）只能靠手動測試，改動時容易產生回歸。
 
@@ -28,9 +28,11 @@
 - 針對 `src/summaryJob.js` 的 `runDailySummary()` 寫測試：mock `db` 與 `summarize`/`sendLineMessage`，驗證「已有摘要則跳過」「單一群組失敗不影響其他群組」「`TARGET_GROUP_ID` 設定時只處理該群組」
 - 涉及檔案：`package.json`、`src/database.js`（可能需重構以分離純邏輯）、`src/summaryJob.js`、新增 `src/*.test.js` 或 `test/` 目錄
 
+> 實作備註：`dayRange()` 改為 `export`；`src/database.test.js` 涵蓋 `todayString`/`dayRange` 的時區邊界；`src/summaryJob.test.js` 透過 `vi.mock` 模擬 `@line/bot-sdk`、`./database.js`、`./summarizer.js`，涵蓋上述四種情境。執行 `yarn test`。
+
 ---
 
-#### 2. 結構化 log 與錯誤通知 `[ ]`
+#### 2. 結構化 log 與錯誤通知 `[x]`
 
 **背景**：目前 `console.log`/`console.error` 是唯一的可觀測性手段。`/api/run-summary` 若整體失敗（如步驟 3 提到的 Firestore 認證問題）只會回 500，使用者要等到沒收到摘要才會發現，且要去翻 Cloud Run log 才能定位問題。
 
@@ -39,9 +41,11 @@
 - `runDailySummary()` 執行完成後（無論成功或部分失敗），若有任一群組處理失敗，透過 LINE Push 通知一個「管理者」群組/個人（可用新增環境變數 `ADMIN_USER_ID` 或 `ADMIN_GROUP_ID`）
 - 涉及檔案：`src/app.js`、`src/summaryJob.js`、`.env.example`、`SETUP.md`
 
+> 實作備註：新增 `src/logger.js`（`logger.info/warn/error`，輸出含 `severity` 欄位的單行 JSON，`err` 物件自動序列化為 `name/message/stack`）。`app.js`、`summaryJob.js` 全面改用此 logger。`runDailySummary()` 新增 `notifyAdmins()`，於迴圈結束後若有 `failures` 則對 `ADMIN_USER_ID`/`ADMIN_GROUP_ID`（任一或兩者皆可設定）各推送一則失敗摘要；回傳值新增 `failed` 欄位。新增 `src/logger.test.js`，並更新 `src/summaryJob.test.js` 涵蓋管理者通知情境。
+
 ---
 
-#### 3. Secret Manager 整合 `[ ]`
+#### 3. Secret Manager 整合 `[x]`
 
 **背景**：目前 `LINE_CHANNEL_ACCESS_TOKEN`、`LINE_CHANNEL_SECRET`、`ANTHROPIC_API_KEY`、`CRON_SECRET` 都以明文環境變數的形式存在 `scripts/02-deploy.sh` 產生的設定與 Cloud Run 服務設定中，且本機 `.env` 內也是明文。
 
@@ -51,11 +55,13 @@
 - `SETUP.md` 補充說明 Secret Manager 設定步驟與所需 IAM 權限（`roles/secretmanager.secretAccessor`）
 - 涉及檔案：`scripts/01-setup-gcp.sh`、`scripts/02-deploy.sh`、`SETUP.md`
 
+> 實作備註：新增 `scripts/02-setup-secrets.sh`（讀取 `.env`，為 `LINE_CHANNEL_ACCESS_TOKEN`/`LINE_CHANNEL_SECRET`/`ANTHROPIC_API_KEY`/`CRON_SECRET` 建立/更新 `${SERVICE_NAME}-*` secret，並對 Cloud Run 預設運算服務帳戶授予 `roles/secretmanager.secretAccessor`）。為維持腳本執行順序清晰，原 `02-deploy.sh`→`03-deploy.sh`、`03-setup-scheduler.sh`→`04-setup-scheduler.sh`（編號重排為 01→04）。`03-deploy.sh` 改用 `--set-secrets` 掛載四個敏感值，其餘設定仍走 `--env-vars-file`。`01-setup-gcp.sh` 新增啟用 `secretmanager.googleapis.com`。`SETUP.md` 新增「步驟四：設定 Secret Manager」與密鑰輪替 FAQ。
+
 ---
 
 ### P1 — 核心摘要品質（核心價值主張的必要功能）
 
-#### 4. 非文字訊息處理 `[ ]`
+#### 4. 非文字訊息處理 `[x]`
 
 **背景**：`src/app.js` 的 `handleEvent()` 目前只處理 `event.message.type === 'text'`，圖片、貼圖、檔案、位置等訊息完全被忽略。如果群組討論搭配了圖片（例如會議照片、文件截圖），摘要會漏掉上下文，使用者讀摘要時可能會看到「[有人傳了訊息但沒寫什麼]」這種斷裂感。
 
@@ -64,9 +70,11 @@
 - `src/database.js` 的 `saveMessage` 新增可選欄位 `messageType`
 - 涉及檔案：`src/app.js`（`handleEvent`）、`src/database.js`
 
+> 實作備註：新增純函式模組 `src/lineMessage.js`（`describeMessage(message)`），將 LINE 訊息事件映射為 `{ text, messageType }`，支援 `text`/`sticker`/`image`/`video`/`audio`/`file`/`location`，未知類型回傳 `null`（`handleEvent` 據此跳過儲存）。`app.js` 的 `handleEvent` 改用此函式，不再以 `event.message.type !== 'text'` 直接過濾。`database.js` 的 `saveMessage` 新增 `messageType`（預設 `'text'`）並寫入 Firestore。新增 `src/lineMessage.test.js` 涵蓋所有訊息類型與 fallback 邏輯。
+
 ---
 
-#### 5. 摘要 Prompt 可依群組自訂 `[ ]`
+#### 5. 摘要 Prompt 可依群組自訂 `[x]`
 
 **背景**：目前所有群組都共用 `src/summarizer.js` 的同一份 `SYSTEM_PROMPT`。但不同群組性質差異很大（例如工作群組重視待辦事項，朋友群組重視活動資訊），固定 prompt 對某些群組可能抓不到重點。
 
@@ -75,6 +83,8 @@
 - `src/summarizer.js` 的 `summarize()` 讀取 `groupSettings` 並合併進 system prompt；若無設定則沿用預設行為
 - 提供一個簡單的設定方式（例如 LINE 訊息指令 `/設定摘要 <說明文字>`，由管理員在群組內輸入，`handleEvent` 偵測並寫入 `groupSettings`）
 - 涉及檔案：`src/database.js`（新增 `getGroupSettings`/`saveGroupSettings`）、`src/summarizer.js`、`src/app.js`
+
+> 實作備註：為維持 `summarizer.js` 不依賴 Firestore（符合 `AGENTS.md` 分層原則），`groupSettings` 的讀取放在 `summaryJob.js`（已依賴 `database.js`），讀出後以 `{ customPromptSuffix }` 選項物件傳入 `summarize(groupId, messages, dateStr, options)`；`summarize()` 本身維持「給輸入產生摘要」的單一職責。`src/database.js` 新增 `getGroupSettings`/`saveGroupSettings`（`groupSettings` collection，doc ID = `groupId`，寫入用 `merge: true`）。`src/lineMessage.js` 新增純函式 `parseSummarySettingCommand(text)` 解析 `/設定摘要 <說明文字>` 指令（非此指令或無說明文字皆回傳 `null`）。`app.js` 的 `handleEvent` 偵測到此指令時呼叫 `db.saveGroupSettings` 並以 `replyMessage` 回覆確認，該指令訊息本身不會存入 `messages`。目前未限制僅群組管理員可設定（LINE Messaging API 無法簡單查詢成員角色），記錄為已知限制。新增/更新測試：`src/lineMessage.test.js`（指令解析）、`src/summaryJob.test.js`（驗證 `customPromptSuffix` 從 `getGroupSettings` 傳入 `summarize`）。`SETUP.md` 新增對應 FAQ。
 
 ---
 
@@ -118,7 +128,7 @@
 
 ## 技術債與基礎強化
 
-- **`runDailySummary()` 同步處理多群組可能逾時**：`/api/run-summary` 目前以 `for...of` 依序處理每個群組（每個群組都呼叫一次 Claude API），若群組數量多，總執行時間可能超過 Cloud Run 預設的 request timeout（300 秒）。短期可在 `scripts/02-deploy.sh` 的 `gcloud run deploy` 加上 `--timeout`，長期應評估改為非同步任務佇列（例如 Cloud Tasks）。
+- **`runDailySummary()` 同步處理多群組可能逾時**：`/api/run-summary` 目前以 `for...of` 依序處理每個群組（每個群組都呼叫一次 Claude API），若群組數量多，總執行時間可能超過 Cloud Run 預設的 request timeout（300 秒）。短期可在 `scripts/03-deploy.sh` 的 `gcloud run deploy` 加上 `--timeout`，長期應評估改為非同步任務佇列（例如 Cloud Tasks）。
 - **`purgeOldMessages` 缺乏測試**：刪除邏輯（`deleteInBatches` + 日期邊界計算）目前無測試覆蓋，若邊界計算錯誤可能誤刪當日資料。應隨功能 1（自動化測試）一併補上。
 - **Firestore 認證在本機沙箱環境的限制**：本機/CI 若無有效的 `GOOGLE_APPLICATION_CREDENTIALS` 或 ADC，`@google-cloud/firestore` 會在初始化時拋出未被路由 try/catch 捕捉的 unhandled rejection，導致整個程序崩潰而非回應錯誤。長期可考慮將 Firestore client 初始化改為 lazy/可注入，方便測試時 mock（與功能 1 相關）。
 

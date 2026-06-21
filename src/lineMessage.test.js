@@ -1,0 +1,74 @@
+import { describe, it, expect } from 'vitest';
+import { describeMessage, parseSummarySettingCommand } from './lineMessage.js';
+
+describe('describeMessage', () => {
+  it('passes text messages through unchanged', () => {
+    expect(describeMessage({ type: 'text', text: 'hello' })).toEqual({ text: 'hello', messageType: 'text' });
+  });
+
+  it('returns a placeholder for stickers', () => {
+    expect(describeMessage({ type: 'sticker', packageId: '1', stickerId: '2' })).toEqual({
+      text: '[貼圖]',
+      messageType: 'sticker',
+    });
+  });
+
+  it('returns a placeholder for images', () => {
+    expect(describeMessage({ type: 'image' })).toEqual({ text: '[圖片]', messageType: 'image' });
+  });
+
+  it('returns a placeholder for video', () => {
+    expect(describeMessage({ type: 'video' })).toEqual({ text: '[影片]', messageType: 'video' });
+  });
+
+  it('returns a placeholder for audio', () => {
+    expect(describeMessage({ type: 'audio' })).toEqual({ text: '[語音]', messageType: 'audio' });
+  });
+
+  it('includes the file name for file messages', () => {
+    expect(describeMessage({ type: 'file', fileName: 'report.pdf', fileSize: 1234 })).toEqual({
+      text: '[檔案: report.pdf]',
+      messageType: 'file',
+    });
+  });
+
+  it('includes the title for location messages', () => {
+    expect(
+      describeMessage({ type: 'location', title: '台北車站', address: '台北市中正區', latitude: 25, longitude: 121 })
+    ).toEqual({ text: '[位置: 台北車站]', messageType: 'location' });
+  });
+
+  it('falls back to the address when a location has no title', () => {
+    expect(describeMessage({ type: 'location', address: '台北市中正區' })).toEqual({
+      text: '[位置: 台北市中正區]',
+      messageType: 'location',
+    });
+  });
+
+  it('returns null for unsupported message types', () => {
+    expect(describeMessage({ type: 'imagemap' })).toBeNull();
+  });
+});
+
+describe('parseSummarySettingCommand', () => {
+  it('extracts the instruction text after the command', () => {
+    expect(parseSummarySettingCommand('/設定摘要 請特別注意待辦事項')).toBe('請特別注意待辦事項');
+  });
+
+  it('trims surrounding whitespace from the command and instruction', () => {
+    expect(parseSummarySettingCommand('  /設定摘要   多一些重點摘要  ')).toBe('多一些重點摘要');
+  });
+
+  it('returns null when the command has no instruction text', () => {
+    expect(parseSummarySettingCommand('/設定摘要')).toBeNull();
+    expect(parseSummarySettingCommand('/設定摘要   ')).toBeNull();
+  });
+
+  it('returns null for regular messages that are not the command', () => {
+    expect(parseSummarySettingCommand('今天天氣真好')).toBeNull();
+  });
+
+  it('returns null for non-string input', () => {
+    expect(parseSummarySettingCommand(undefined)).toBeNull();
+  });
+});
