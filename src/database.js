@@ -25,7 +25,7 @@ export function dayRange(dateStr) {
   };
 }
 
-export async function saveMessage({ groupId, userId, displayName, message }) {
+export async function saveMessage({ groupId, userId, displayName, message, messageType = 'text' }) {
   const now = Timestamp.now();
   const dateStr = todayString();
 
@@ -34,6 +34,7 @@ export async function saveMessage({ groupId, userId, displayName, message }) {
     userId: userId ?? null,
     displayName: displayName ?? null,
     message,
+    messageType,
     timestamp: now,
   });
 

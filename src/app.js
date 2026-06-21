@@ -4,6 +4,7 @@ import { messagingApi, middleware as lineMiddleware, SignatureValidationFailed }
 import * as db from './database.js';
 import { runDailySummary } from './summaryJob.js';
 import { logger } from './logger.js';
+import { describeMessage } from './lineMessage.js';
 
 const lineConfig = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -49,11 +50,13 @@ app.post('/api/run-summary', async (req, res) => {
 });
 
 async function handleEvent(event) {
-  if (event.type !== 'message' || event.message.type !== 'text') return;
+  if (event.type !== 'message') return;
   if (event.source.type !== 'group') return;
 
+  const described = describeMessage(event.message);
+  if (!described) return;
+
   const { groupId, userId } = event.source;
-  const text = event.message.text;
 
   let displayName = null;
   try {
@@ -63,8 +66,14 @@ async function handleEvent(event) {
     // profile not available (e.g. user left the group) — store without a name
   }
 
-  await db.saveMessage({ groupId, userId, displayName, message: text });
-  logger.info('Saved message', { step: 'save_message', groupId, userId });
+  await db.saveMessage({
+    groupId,
+    userId,
+    displayName,
+    message: described.text,
+    messageType: described.messageType,
+  });
+  logger.info('Saved message', { step: 'save_message', groupId, userId, messageType: described.messageType });
 }
 
 app.use((err, req, res, next) => {

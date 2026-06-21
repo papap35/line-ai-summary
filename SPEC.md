@@ -61,7 +61,7 @@
 
 ### P1 — 核心摘要品質（核心價值主張的必要功能）
 
-#### 4. 非文字訊息處理 `[ ]`
+#### 4. 非文字訊息處理 `[x]`
 
 **背景**：`src/app.js` 的 `handleEvent()` 目前只處理 `event.message.type === 'text'`，圖片、貼圖、檔案、位置等訊息完全被忽略。如果群組討論搭配了圖片（例如會議照片、文件截圖），摘要會漏掉上下文，使用者讀摘要時可能會看到「[有人傳了訊息但沒寫什麼]」這種斷裂感。
 
@@ -69,6 +69,8 @@
 - 將貼圖（sticker）、圖片、檔案、位置等事件也存入 `messages`，以一個 placeholder 文字描述（例如 `[貼圖]`、`[圖片]`、`[檔案: ${fileName}]`、`[位置: ${title}]`）讓 `summarizer.js` 至少知道「這裡有非文字內容」，不需真的做圖片辨識
 - `src/database.js` 的 `saveMessage` 新增可選欄位 `messageType`
 - 涉及檔案：`src/app.js`（`handleEvent`）、`src/database.js`
+
+> 實作備註：新增純函式模組 `src/lineMessage.js`（`describeMessage(message)`），將 LINE 訊息事件映射為 `{ text, messageType }`，支援 `text`/`sticker`/`image`/`video`/`audio`/`file`/`location`，未知類型回傳 `null`（`handleEvent` 據此跳過儲存）。`app.js` 的 `handleEvent` 改用此函式，不再以 `event.message.type !== 'text'` 直接過濾。`database.js` 的 `saveMessage` 新增 `messageType`（預設 `'text'`）並寫入 Firestore。新增 `src/lineMessage.test.js` 涵蓋所有訊息類型與 fallback 邏輯。
 
 ---
 
