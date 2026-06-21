@@ -74,7 +74,7 @@
 
 ---
 
-#### 5. 摘要 Prompt 可依群組自訂 `[ ]`
+#### 5. 摘要 Prompt 可依群組自訂 `[x]`
 
 **背景**：目前所有群組都共用 `src/summarizer.js` 的同一份 `SYSTEM_PROMPT`。但不同群組性質差異很大（例如工作群組重視待辦事項，朋友群組重視活動資訊），固定 prompt 對某些群組可能抓不到重點。
 
@@ -83,6 +83,8 @@
 - `src/summarizer.js` 的 `summarize()` 讀取 `groupSettings` 並合併進 system prompt；若無設定則沿用預設行為
 - 提供一個簡單的設定方式（例如 LINE 訊息指令 `/設定摘要 <說明文字>`，由管理員在群組內輸入，`handleEvent` 偵測並寫入 `groupSettings`）
 - 涉及檔案：`src/database.js`（新增 `getGroupSettings`/`saveGroupSettings`）、`src/summarizer.js`、`src/app.js`
+
+> 實作備註：為維持 `summarizer.js` 不依賴 Firestore（符合 `AGENTS.md` 分層原則），`groupSettings` 的讀取放在 `summaryJob.js`（已依賴 `database.js`），讀出後以 `{ customPromptSuffix }` 選項物件傳入 `summarize(groupId, messages, dateStr, options)`；`summarize()` 本身維持「給輸入產生摘要」的單一職責。`src/database.js` 新增 `getGroupSettings`/`saveGroupSettings`（`groupSettings` collection，doc ID = `groupId`，寫入用 `merge: true`）。`src/lineMessage.js` 新增純函式 `parseSummarySettingCommand(text)` 解析 `/設定摘要 <說明文字>` 指令（非此指令或無說明文字皆回傳 `null`）。`app.js` 的 `handleEvent` 偵測到此指令時呼叫 `db.saveGroupSettings` 並以 `replyMessage` 回覆確認，該指令訊息本身不會存入 `messages`。目前未限制僅群組管理員可設定（LINE Messaging API 無法簡單查詢成員角色），記錄為已知限制。新增/更新測試：`src/lineMessage.test.js`（指令解析）、`src/summaryJob.test.js`（驗證 `customPromptSuffix` 從 `getGroupSettings` 傳入 `summarize`）。`SETUP.md` 新增對應 FAQ。
 
 ---
 

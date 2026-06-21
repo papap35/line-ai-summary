@@ -263,3 +263,6 @@ A: 設定 `.env` 中的 `ADMIN_USER_ID`（個人 LINE User ID）和/或 `ADMIN_G
 
 **Q: 程式的 log 是什麼格式？**
 A: 所有 log 都是單行 JSON（含 `severity`、`message` 與其他情境欄位如 `groupId`、`dateStr`、`step`），方便在 Cloud Logging 中依欄位篩選，例如查詢 `jsonPayload.step="process_group" AND severity=ERROR` 找出失敗的群組。
+
+**Q: 可以讓不同群組的摘要側重點不一樣嗎（例如工作群組重視待辦事項）？**
+A: 可以。在群組內輸入 `/設定摘要 <說明文字>`（例如 `/設定摘要 請特別關注待辦事項與截止日期`），機器人會把這段文字附加到該群組的摘要 system prompt 後面，並回覆「已更新本群組的摘要自訂指示。」之後每日摘要都會套用，直到再次輸入指令覆蓋為止。這個指令訊息本身不會被存入當日對話記錄。

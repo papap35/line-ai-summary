@@ -43,18 +43,21 @@ function formatMessages(messages) {
     .join('\n');
 }
 
-export async function summarize(groupId, messages, dateStr) {
+export async function summarize(groupId, messages, dateStr, { customPromptSuffix } = {}) {
   if (messages.length === 0) {
     return '今日無訊息記錄。';
   }
 
   const chatText = formatMessages(messages);
   const userContent = `以下是 ${dateStr} 的群組對話記錄，共 ${messages.length} 則訊息：\n\n${chatText}`;
+  const systemPrompt = customPromptSuffix
+    ? `${SYSTEM_PROMPT}\n\n## 本群組的額外指示\n${customPromptSuffix}`
+    : SYSTEM_PROMPT;
 
   const response = await client.messages.create({
     model: 'claude-haiku-4-5',
     max_tokens: 1024,
-    system: SYSTEM_PROMPT,
+    system: systemPrompt,
     messages: [{ role: 'user', content: userContent }],
   });
 

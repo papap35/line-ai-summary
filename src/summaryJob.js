@@ -54,7 +54,10 @@ export async function runDailySummary() {
       const messages = await db.getTodayMessages(groupId, dateStr);
       logger.info('Summarizing messages', { step: 'summarize', groupId, dateStr, messageCount: messages.length });
 
-      const summaryText = await summarize(groupId, messages, dateStr);
+      const settings = await db.getGroupSettings(groupId);
+      const summaryText = await summarize(groupId, messages, dateStr, {
+        customPromptSuffix: settings?.customPromptSuffix,
+      });
       await db.saveSummary(groupId, summaryText, dateStr);
 
       const header = `📊 ${dateStr} 每日重點摘要\n${'─'.repeat(20)}\n`;

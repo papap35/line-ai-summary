@@ -15,6 +15,7 @@ vi.mock('./database.js', () => ({
   getActiveGroups: vi.fn(),
   getSummary: vi.fn(),
   getTodayMessages: vi.fn(),
+  getGroupSettings: vi.fn(),
   saveSummary: vi.fn(),
   purgeOldMessages: vi.fn(),
 }));
@@ -34,6 +35,7 @@ beforeEach(() => {
   delete process.env.ADMIN_GROUP_ID;
   db.todayString.mockReturnValue('2026-06-15');
   db.purgeOldMessages.mockResolvedValue();
+  db.getGroupSettings.mockResolvedValue(null);
 });
 
 describe('runDailySummary', () => {
@@ -91,6 +93,20 @@ describe('runDailySummary', () => {
     expect(recipients).toEqual(['Uadmin', 'Cadmin']);
     expect(pushMessage.mock.calls[0][0].messages[0].text).toContain('G1');
     expect(pushMessage.mock.calls[0][0].messages[0].text).toContain('boom');
+  });
+
+  it('passes the group\'s customPromptSuffix from getGroupSettings to summarize', async () => {
+    db.getActiveGroups.mockResolvedValue(['G1']);
+    db.getSummary.mockResolvedValue(null);
+    db.getTodayMessages.mockResolvedValue([]);
+    db.getGroupSettings.mockResolvedValue({ customPromptSuffix: '請特別注意待辦事項' });
+    summarize.mockResolvedValue('summary text');
+
+    await runDailySummary();
+
+    expect(summarize).toHaveBeenCalledWith('G1', [], '2026-06-15', {
+      customPromptSuffix: '請特別注意待辦事項',
+    });
   });
 
   it('only processes TARGET_GROUP_ID when set, skipping getActiveGroups', async () => {

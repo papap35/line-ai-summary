@@ -4,7 +4,7 @@ import { messagingApi, middleware as lineMiddleware, SignatureValidationFailed }
 import * as db from './database.js';
 import { runDailySummary } from './summaryJob.js';
 import { logger } from './logger.js';
-import { describeMessage } from './lineMessage.js';
+import { describeMessage, parseSummarySettingCommand } from './lineMessage.js';
 
 const lineConfig = {
   channelAccessToken: process.env.LINE_CHANNEL_ACCESS_TOKEN,
@@ -57,6 +57,23 @@ async function handleEvent(event) {
   if (!described) return;
 
   const { groupId, userId } = event.source;
+
+  if (described.messageType === 'text') {
+    const customPromptSuffix = parseSummarySettingCommand(described.text);
+    if (customPromptSuffix) {
+      await db.saveGroupSettings(groupId, { customPromptSuffix });
+      logger.info('Updated group summary settings', { step: 'save_group_settings', groupId });
+      try {
+        await lineClient.replyMessage({
+          replyToken: event.replyToken,
+          messages: [{ type: 'text', text: '已更新本群組的摘要自訂指示。' }],
+        });
+      } catch (err) {
+        logger.error('Failed to reply to group settings command', { step: 'reply_group_settings', groupId, err });
+      }
+      return;
+    }
+  }
 
   let displayName = null;
   try {

@@ -10,6 +10,7 @@ const firestore = new Firestore({
 const messagesCol = firestore.collection('messages');
 const summariesCol = firestore.collection('summaries');
 const activityCol = firestore.collection('groupActivity');
+const groupSettingsCol = firestore.collection('groupSettings');
 
 export function todayString() {
   return DateTime.now().setZone(TIMEZONE).toISODate();
@@ -82,6 +83,18 @@ export async function saveSummary(groupId, summary, dateStr = todayString()) {
 export async function getSummary(groupId, dateStr = todayString()) {
   const doc = await summariesCol.doc(`${groupId}__${dateStr}`).get();
   return doc.exists ? doc.data().summary : null;
+}
+
+export async function getGroupSettings(groupId) {
+  const doc = await groupSettingsCol.doc(groupId).get();
+  return doc.exists ? doc.data() : null;
+}
+
+export async function saveGroupSettings(groupId, settings) {
+  await groupSettingsCol.doc(groupId).set(
+    { groupId, ...settings, updatedAt: Timestamp.now() },
+    { merge: true }
+  );
 }
 
 async function deleteInBatches(query, batchSize = 400) {

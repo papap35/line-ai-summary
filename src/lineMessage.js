@@ -22,3 +22,17 @@ export function describeMessage(message) {
       return null;
   }
 }
+
+const SUMMARY_SETTING_COMMAND = '/設定摘要';
+
+// Parses the "/設定摘要 <說明文字>" command. Returns the trimmed instruction
+// text, or null if the message isn't this command (or carries no
+// instruction text, e.g. "/設定摘要" alone).
+export function parseSummarySettingCommand(text) {
+  if (typeof text !== 'string') return null;
+  const trimmed = text.trim();
+  if (!trimmed.startsWith(SUMMARY_SETTING_COMMAND)) return null;
+
+  const suffix = trimmed.slice(SUMMARY_SETTING_COMMAND.length).trim();
+  return suffix || null;
+}
