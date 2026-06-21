@@ -16,6 +16,7 @@ Cloud Scheduler ──(每天定時 POST /api/run-summary)──┘
 - **Firestore**：取代 SQLite，儲存訊息與摘要（Native mode）
 - **Cloud Scheduler**：取代 in-process cron，每天定時呼叫 `/api/run-summary`
 - **Secret Manager**：存放 LINE / Anthropic 金鑰與 `CRON_SECRET`，Cloud Run 部署時以環境變數形式掛載，避免明文存在服務設定中
+- **GitHub Actions**（可選）：PR/push 時跑測試；merge 到 `main` 後透過 Workload Identity Federation 自動部署到 Cloud Run，見步驟九
 
 ## 快速部署（適合已熟悉 gcloud 的人）
 
@@ -27,6 +28,7 @@ cp .env.example .env   # 填入 LINE / Anthropic 金鑰、GOOGLE_CLOUD_PROJECT�
 ./scripts/02-setup-secrets.sh    # 將金鑰寫入 Secret Manager，並授權 Cloud Run 讀取
 ./scripts/03-deploy.sh           # 部署到 Cloud Run，輸出服務網址
 ./scripts/04-setup-scheduler.sh  # 建立/更新 Cloud Scheduler 每日摘要 job
+./scripts/05-setup-cicd.sh       # （可選）設定 GitHub Actions 自動部署，見步驟九
 ```
 
 接著到 LINE Developers Console 設定 Webhook URL（見步驟五）。下面是完整的逐步說明，第一次操作或想了解每個指令的用途建議閱讀。
@@ -222,6 +224,38 @@ gcloud scheduler jobs create http daily-summary \
 
 上面的 `--schedule="0 20 * * *"` 是每天晚上 8 點（cron 語法：分 時 日 月 週）。
 
+## 步驟九：設定 CI/CD（GitHub Actions 自動部署，可選）
+
+`.github/workflows/ci-cd.yml` 定義了兩個 job：
+
+- **test**：每次 push 或開 PR 都會執行 `yarn test`
+- **deploy**：merge 到 `main` 後，自動執行 `./scripts/03-deploy.sh` 部署到 Cloud Run（需先通過 test job）
+
+GCP 端的認證採用 [Workload Identity Federation](https://cloud.google.com/iam/docs/workload-identity-federation)，GitHub Actions 不需要存放任何長期金鑰，而是用短期 OIDC token 換取一個專用 deploy service account 的權限。
+
+1. 在 `.env` 設定 `GITHUB_REPO=papap35/line-ai-summary`，然後執行：
+
+   ```bash
+   ./scripts/05-setup-cicd.sh
+   ```
+
+   這會建立：
+   - 一個限定此 repo 才能使用的 Workload Identity Pool/Provider
+   - 一個 deploy service account（具備 `run.admin`/`cloudbuild.builds.editor`/`artifactregistry.writer`/`storage.admin`/`iam.serviceAccountUser`，足以執行 `gcloud run deploy --source`）
+
+2. 腳本執行完會印出幾個值，到 GitHub repo **Settings → Secrets and variables → Actions → Variables** 分頁新增（注意是 **Variables**，不是 Secrets，因為這些值本身不是機密）：
+
+   | Variable | 說明 |
+   |---|---|
+   | `GCP_WORKLOAD_IDENTITY_PROVIDER` | 腳本輸出的 Workload Identity Provider 完整路徑 |
+   | `GCP_DEPLOY_SERVICE_ACCOUNT` | 腳本建立的 deploy service account email |
+   | `GCP_PROJECT_ID` | GCP 專案 ID |
+   | `GCP_REGION` | 部署區域（預設 `asia-east1`） |
+   | `GCP_SERVICE_NAME` | Cloud Run 服務名稱（預設 `line-ai-summary`） |
+   | `TARGET_GROUP_ID`、`MESSAGE_RETENTION_DAYS`、`TIMEZONE`、`ADMIN_USER_ID`、`ADMIN_GROUP_ID` | 對應 `.env` 中的同名非機密設定（可留空） |
+
+3. 之後合併到 `main` 的 PR 會自動觸發部署；LINE / Anthropic 金鑰與 `CRON_SECRET` 仍只存在 Secret Manager（由 `./scripts/02-setup-secrets.sh` 管理），不會出現在 GitHub 任何設定中。
+
 ## 手動觸發摘要（測試用）
 
 ```bash
@@ -266,3 +300,6 @@ A: 所有 log 都是單行 JSON（含 `severity`、`message` 與其他情境欄�
 
 **Q: 可以讓不同群組的摘要側重點不一樣嗎（例如工作群組重視待辦事項）？**
 A: 可以。在群組內輸入 `/設定摘要 <說明文字>`（例如 `/設定摘要 請特別關注待辦事項與截止日期`），機器人會把這段文字附加到該群組的摘要 system prompt 後面，並回覆「已更新本群組的摘要自訂指示。」之後每日摘要都會套用，直到再次輸入指令覆蓋為止。這個指令訊息本身不會被存入當日對話記錄。
+
+**Q: GitHub Actions 部署失敗，要怎麼排查？**
+A: 先看 Actions 頁面的 log：`auth` 步驟失敗通常是 `GCP_WORKLOAD_IDENTITY_PROVIDER`/`GCP_DEPLOY_SERVICE_ACCOUNT` 兩個 Variables 設錯，或 `scripts/05-setup-cicd.sh` 還沒執行；`Deploy to Cloud Run` 步驟失敗常見原因是 deploy service account 缺少角色（重新執行一次 `05-setup-cicd.sh` 確認權限）或是 Secret Manager 裡的金鑰還沒建立（先跑過 `02-setup-secrets.sh`）。
